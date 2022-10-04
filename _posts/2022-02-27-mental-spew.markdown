@@ -2,7 +2,7 @@
 layout: post
 title:  "Mental spew"
 date:   2022-02-27 
-categories: update 
+tags: story
 ---
 
 ### On answers to "big" questions in podcasts

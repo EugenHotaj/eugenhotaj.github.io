@@ -28,6 +28,7 @@ github_username: EugenHotaj
 linkedin_username: eugen-hotaj 
 
 # Build settings
+markdown: kramdown
 theme: minima
 plugins:
   - jekyll-feed
