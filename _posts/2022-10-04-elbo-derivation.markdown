@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  "Deriving the Evidence Lower Bound (ELBO)"
-date:   2022-02-27 
+date:   2022-10-04
 tag: technical
 ---
 
