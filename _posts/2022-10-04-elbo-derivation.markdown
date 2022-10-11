@@ -15,7 +15,7 @@ $$
 \log p(\mathbf{x}) &= \log \int p(\mathbf{z}, \mathbf{x}) d\mathbf{z} && 
 \text{definition of marginalization} \\
 
-&= \log q(\mathbf{z}|\mathbf{x}) \frac{p(\mathbf{z}, \mathbf{x})}{q(\mathbf{z}|\mathbf{x})} 
+&= \log \int q(\mathbf{z}|\mathbf{x}) \frac{p(\mathbf{z}, \mathbf{x})}{q(\mathbf{z}|\mathbf{x})} d\mathbf{z}
 && \text{identity trick} \ q(\mathbf{z}|\mathbf{x})/q(\mathbf{z}|\mathbf{x})  = 1 \\
 
 &= \log \mathbb{E}_{q(\mathbf{z}| \mathbf{x})} \left[ \frac{p(\mathbf{z}, \mathbf{x})}{q(\mathbf{z}|\mathbf{x})} \right] 
