@@ -4,4 +4,4 @@ title: About
 permalink: /about/
 ---
 
-TODO.
+Check out the links in the footer.
