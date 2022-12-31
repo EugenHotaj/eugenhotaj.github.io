@@ -60,4 +60,5 @@ $$
 $$
 
 What we have arrived at is exactly the normal equations, where 
-$$(\mathbf{X}^T\mathbf{X})^{-1}\mathbf{X}^T$$ is known as the (Moore-Penrose) pseudo-inverse.
+$$(\mathbf{X}^T\mathbf{X})^{-1}\mathbf{X}^T$$ is known as the (Moore-Penrose) pseudo-
+inverse.
