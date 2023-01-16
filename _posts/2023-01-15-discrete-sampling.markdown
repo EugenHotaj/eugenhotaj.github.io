@@ -46,7 +46,7 @@ of states $$X$$ can take. Can we do better?
 ### Binary search
 
 One straightforward extension is to realize that the CDF is monotonic and hence sorted. 
-We can use binary search to drive the runtime complexity to $$O(\log n)$$. In Python 
+We can use binary search to drive the runtime complexity to $$O(\log N)$$. In Python 
 this can be implemented in two short lines of code:
 
 ```python
@@ -57,7 +57,7 @@ def sample_binary_search(cdf: List[float]) -> int:
     return bisect(cdf, u)
 ```
 
-But can we do even better?
+Can we do _even_ better?
 
 ### Walker's Alias Method
 

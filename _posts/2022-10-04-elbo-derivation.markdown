@@ -6,8 +6,8 @@ tag: technical
 ---
 
 Suppose we have a joint distribution $$p(\mathbf{x}, \mathbf{z})$$ where $$\mathbf{z}$$
-are latent variables. Then the Evidence Lower Bound (ELBO) for 
-$$p(\mathbf{x})$$ can be derived as:
+are latent variables. Then the Evidence Lower Bound (ELBO) for $$p(\mathbf{x})$$ can be 
+derived as:
 
 $$
 \begin{align}
