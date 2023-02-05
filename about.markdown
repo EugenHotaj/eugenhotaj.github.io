@@ -4,8 +4,9 @@ title: About
 permalink: /about/
 ---
 
-Check out the links in the footer. Send correspondence to the email below:
+Check out the links in the footer. Send correspondence to:
 
 ```python
-email = f"{first_name[0]}s{last_name[0]}@nyu.edu"
+first, last = "eugen", "hotaj"
+email = f"{first[0]}s{last[0]}@nyu.edu"
 ```
