@@ -130,7 +130,7 @@ D_\mathrm{KL}(p||q) &= \mathbb{E}_{p(x)} \left[ -\log \left( \frac{q(x)}{p(x)} \
 \end{align}
 $$
 
-### Natural Logarithm Bounds
+#### Natural Logarithm Bounds
 
 The second proof makes use of the [natural logarithm bounds](https://proofwiki.org/wiki/Bounds_of_Natural_Logarithm).
 More specifically, we use the fact that $$-\log(x) \ge 1 - x$$ to show:
