@@ -17,7 +17,7 @@ I plan to occasionally update this post as new material comes up.
 <br><br>
 
 
-### 1. Evidence Lower Bound (ELBo)
+### 1. &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Evidence Lower Bound (ELBO)
 
 Suppose we have a joint distribution $$p(\mathbf{x}, \mathbf{z})$$ where $$\mathbf{z}$$
 are latent variables. Then the Evidence Lower Bound (ELBO) for $$p(\mathbf{x})$$ can be 
@@ -44,7 +44,7 @@ $$
 $$
 
 
-### 2. Normal Equations
+### 2. &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Normal Equations
 
 Suppose we are given a design matrix $$\mathbf{X} \in \mathbb{R}^{N \times K}$$ 
 and targets vector $$\mathbf{y} \in \mathbb{R}^N$$. We want to find
@@ -105,7 +105,7 @@ $$(\mathbf{X}^T\mathbf{X})^{-1}\mathbf{X}^T$$ is known as the (Moore-Penrose) ps
 inverse.
 
 
-### 3. Kullback-Leibler Divergence (Two Proofs)
+### 3. &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Kullback-Leibler Divergence (Two Proofs)
 
 This post shows two different ways to prove that $$D_\mathrm{KL}(p || q) \ge 0$$ given 
 distributions $$p(x), q(x)$$.
