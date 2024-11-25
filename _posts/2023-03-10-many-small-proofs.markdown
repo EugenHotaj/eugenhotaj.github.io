@@ -43,6 +43,8 @@ $$
 \end{align}
 $$
 
+<br>
+
 
 ### 2. &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Normal Equations
 
@@ -104,6 +106,7 @@ What we have arrived at is exactly the normal equations, where
 $$(\mathbf{X}^T\mathbf{X})^{-1}\mathbf{X}^T$$ is known as the (Moore-Penrose) pseudo-
 inverse.
 
+<br>
 
 ### 3. &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Kullback-Leibler Divergence (Two Proofs)
 
@@ -147,6 +150,7 @@ D_\mathrm{KL}(p||q) &= \mathbb{E}_{p(x)} \left[ -\log \left( \frac{q(x)}{p(x)} \
 \end{align}
 $$
 
+<br>
 
 ### 4. &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; $$\log \det(\mathbf{A}) = \mathrm{Tr}(\log \mathbf{A})$$
 
