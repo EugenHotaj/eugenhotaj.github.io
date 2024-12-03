@@ -5,7 +5,7 @@ date:   2023-03-10
 tag: technical
 ---
 
-*Last updated: Nov 25, 2024*
+*Last updated: Dec 2, 2024*
 
 When reading textbooks, papers, or work stuff, I occasionally find myself writing small 
 proofs or derivations to better understand a particular topic. Eventually I'll forget 
@@ -110,7 +110,7 @@ inverse.
 
 ### 3. &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Kullback-Leibler Divergence (Two Proofs)
 
-This post shows two different ways to prove that $$D_\mathrm{KL}(p || q) \ge 0$$ given 
+We show two different ways to prove that $$D_\mathrm{KL}(p || q) \ge 0$$ given 
 distributions $$p(x), q(x)$$.
 
 #### Jensen's Inequality
@@ -174,3 +174,51 @@ The third line makes use of the identity
 $$\log(\mathbf{A}) = \mathbf{P}^{-1}(\log \boldsymbol{\Lambda})\mathbf{P}$$ for 
 diagonalizable $$\mathbf{A}$$ and that
 $$\mathrm{Tr}(\mathbf{A}) = \sum_i \lambda_i$$. 
+
+<br>
+
+### 5. &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Posterior motivation for $$\sigma(\cdot)$$
+
+Using $$\sigma(\cdot)$$ as the output function for classification, where $$\sigma$$ is either the
+sigmoid or softmax function, can be motivated from a number of angles. One interesting motivation
+from [Bishop](https://www.bishopbook.com) uses the class posterior probability as follows.
+
+#### Binary classification
+
+Suppose we have data $$\mathbf{x}$$, labels $$\mathcal{C}$$ sampled from $$p(\mathbf{x}, \mathcal{C})$$, where $$\mathcal{C} \in {0, 1}$$.
+Then the posterior probability that $$C=1$$ can be written as
+
+$$
+\begin{align}
+p(\mathcal{C}=1|\mathbf{x}) &= \frac{p(\mathbf{x}|\mathcal{C}=1)p(\mathcal{C}=1)}{p(\mathbf{x}|\mathcal{C}=0)p(\mathcal{C}=0) + p(\mathbf{x}|\mathcal{C}=1)p(\mathcal{C}=1)} \\
+&=\frac{1}{\frac{p(\mathbf{x}|\mathcal{C}=0)p(\mathcal{C}=0) + p(\mathbf{x}|\mathcal{C}=1)p(\mathcal{C}=1)}{p(\mathbf{x}|\mathcal{C}=1)p(\mathcal{C}=1)}} && \text{reciprocal rule} \\
+&=\frac{1}{1+\frac{p(\mathbf{x}|\mathcal{C}=0)p(\mathcal{C}=0)}{p(\mathbf{x}|\mathcal{C}=1)p(\mathcal{C}=1)}} \\
+&=\frac{1}{1+\exp(-a)} \\
+&= \sigma(-a)
+\end{align}
+$$
+
+where we have defined 
+$$
+a=\ln\frac{p(\mathbf{x}|\mathcal{C}=1)p(\mathcal{C}=1)}{p(\mathbf{x}|\mathcal{C}=0)p(\mathcal{C}=0)}.
+$$
+Therefore, given some function that outputs logits $$\text{h} = f(\mathbf{x})$$, the function $$\sigma(h)$$ directly corresponds to the posterior probability of observing the positive class $$\mathcal{C}=1$$.
+
+
+#### Multiclass classification
+
+The same motivation extends to the case when we have $$K$$ classes. The posterior probability that $$C=k$$ can be written as
+
+$$
+\begin{align}
+p(\mathcal{C}=k|\mathbf{x}) &= \frac{p(\mathbf{x}|\mathcal{C}=k)p(\mathcal{C}=k)}{\sum_j p(\mathbf{x}|\mathcal{C}=j)p(\mathcal{C}=0)} \\
+&= \frac{\exp(a_k)}{\sum_j \exp(a_j)} \\
+&= \sigma(a_k)
+\end{align}
+$$
+
+where we have defined 
+$$ 
+a_k = \ln p(\mathbf{x}|\mathcal{C}=k)p(\mathcal{C}=k).
+$$
+Interestingly, the multiclass motivation is much easier to see and simpler to derive.
