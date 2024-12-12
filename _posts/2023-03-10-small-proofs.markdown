@@ -196,7 +196,7 @@ p(\mathcal{C}=1|\mathbf{x}) &= \frac{p(\mathbf{x}|\mathcal{C}=1)p(\mathcal{C}=1)
 &=\frac{1}{\frac{p(\mathbf{x}|\mathcal{C}=0)p(\mathcal{C}=0) + p(\mathbf{x}|\mathcal{C}=1)p(\mathcal{C}=1)}{p(\mathbf{x}|\mathcal{C}=1)p(\mathcal{C}=1)}} && \text{reciprocal rule} \\
 &=\frac{1}{1+\frac{p(\mathbf{x}|\mathcal{C}=0)p(\mathcal{C}=0)}{p(\mathbf{x}|\mathcal{C}=1)p(\mathcal{C}=1)}} \\
 &=\frac{1}{1+\exp(-a)} \\
-&= \sigma(-a)
+&= \sigma(a)
 \end{align}
 $$
 
