@@ -143,7 +143,7 @@ More specifically, we use the fact that $$-\log(x) \ge 1 - x$$ to show:
 $$
 \begin{align}
 D_\mathrm{KL}(p||q) &= \mathbb{E}_{p(x)} \left[ -\log \left( \frac{q(x)}{p(x)} \right) \right] \\
-&\ge \mathbb{E}_{p(x)} \left[ \left( 1 -\frac{q(x)}{p(x)} \right) \right] \\
+&\ge \mathbb{E}_{p(x)} \left[ \left( 1 -\frac{q(x)}{p(x)} \right) \right] && \text{natural logarithm bound} \\ 
 &=\int p(x) \left( 1 -\frac{q(x)}{p(x)} \right) dx 
 && \text{definition of expectation} \\
 &=\int  p(x) - q(x)  dx \\
