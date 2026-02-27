@@ -1,0 +1,76 @@
+---
+layout: post
+title: Building GRPO From Scratch
+date: 2026-02-27
+tag: technical
+---
+
+Group Relative Policy Optimization (GRPO) is a widely used reinforcement learning algorithm that was popularized by 
+DeepSeek. In this post, we start entirely from first principles and progressively add complexity until we get 
+to the full GRPO objective.
+
+Our primary focus is to understand how GRPO applies to LLM training and tailor the notation specifically towards that.
+
+
+### 1. Maximizing Rewards
+
+At a fundemental level, reinforcement learning algorithms all boil down to maximizing an expected reward:
+
+$$\mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|p)}[R(o)]$$
+
+The $$\mathcal{J}(\theta)$$ that we defined above is called a surrogate objective and obviously if we
+maximize $$\mathcal{J}(\theta)$$ we will maximize the expected reward. To maximize $$\mathcal{J}(\theta)$$
+we need to find parameters $$\theta$$ for our LLM policy $$pi_\theta$$ that will produce good outputs $$o$$
+over our query distribution $$q \sim p(Q)$$.
+
+
+#### 1.1 REINFORCE
+
+Differentiating the surrogate objective above $$\nabla \mathcal{J}(\theta)$$ already corresponds to the widely used 
+REINFORCE policy gradient algorithm [2]. However, it's unclear how we'd optimize it in the form its currently
+written. For example, to optimize expectations we usually take Monte-Carlo samples, differentiate them individually,
+and average the gradients to approximate the expectation's gradient. However, our policy $$\pi_\theta$$ never 
+appears inside the expectation, only the rewards, and those are not differentiable. To get around this, 
+REINFORCE is presented in a slightly different, but mathematically identical, form:
+
+$$
+\begin{align}
+\nabla \mathcal{J}(\theta) &= \nabla \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|p)}[R(o)] \\
+&= \sum_{p, o} \nabla \pi_\theta(o|p) R(o) && \text{definition + linearity of expectations}\\
+&= \sum_{p, o} \frac{\pi_\theta(o|p)}{\pi_\theta(o|p) } \nabla \pi_\theta(o|p) R(o) && \text{idenity trick} \\
+&= \sum_{p, o} \pi_\theta(o|p) \nabla \log  \pi_\theta(o|p) R(o) && \text{log derivative trick} \\
+&= \nabla \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|p)}[ \log  \pi_\theta(o|p) R(o)] 
+\end{align}
+$$
+
+The final line is how REINFORCE is typically implemented in practice. Another valid formulation is to pull the 
+identity trick from line $$3$$ into the surrogate objective:
+
+$$
+\mathcal{J}(\theta) =\mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|p)}\Bigg[ \frac{\pi_\theta(o|p)}{ \pi_\theta(o|p)} R(o)\Bigg] 
+$$
+
+It should be evident that this is identical to the previous formulation because we're just multiplying by $$1$$. This may seem like a 
+silly thing to do, but it will make it easier to draw parallels with the GRPO loss down below.
+
+#### 1.2 From Rewards to Advantages
+
+GRPO was originally created to optimize verifiable domains where there is a single correct answer, such as math. In these
+domains, the reward is typically assigned to be either $$1$$ if the output is correct or $$0$$ otherwise. However, this
+formulation doesn't distinguish easy vs hard queries very well. An easy query which the model gets correct $$9/10$$ times 
+gets the same reward as a hard query which the model gets correct only $$1/10$$ times. This makes credit assignment
+difficult and can lead to high variance gradients and unstable learning.
+
+One way to reduce the variance is by trying to maximize advantages instead of rewards. Suppose that for a given query $$q$$ 
+we sample $$G$$ ouputs $$\{o_1, \dots, o_G\}$$ with rewards $$\{r_1 = R(o_1), \dots, r_G = R(o_G)\}$$, then for a single 
+output $$o_i$$ we can compute the advantage as:
+
+$$
+A_i = \frac{r_i - \text{mean}(r_1, \dots, r_G)}{\text{std}(r_1, \dots, r_G)}
+$$
+
+In essence, the advantage of each output is the reward normalized to have zero-mean, unit-variance across the group. 
+If the output is correct (incorrect), the advantage will be larger (smaller) than the mean by an amount _relative_ to
+how easy or hard the query was across the group, which is why the algorithm is called _Group Relative_ Policy Optimization.
+Unlike the rewards, the advantages will vary smoothly between $$0$$ and $$1$$ depending on the difficulty of the query, 
+thereby reducing variance and providing a stronger learning signal.
