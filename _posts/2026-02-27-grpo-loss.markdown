@@ -1,6 +1,6 @@
 ---
 layout: post
-title: [WIP] Building GRPO From Scratch
+title: (WIP) Building GRPO From Scratch
 date: 2026-02-27
 tag: technical
 ---
