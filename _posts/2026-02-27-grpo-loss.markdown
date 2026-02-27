@@ -1,6 +1,6 @@
 ---
 layout: post
-title: Building GRPO From Scratch
+title: [WIP] Building GRPO From Scratch
 date: 2026-02-27
 tag: technical
 ---
@@ -16,7 +16,7 @@ Our primary focus is to understand how GRPO applies to LLM training and tailor t
 
 At a fundemental level, reinforcement learning algorithms all boil down to maximizing an expected reward:
 
-$$\mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|p)}[R(o)]$$
+$$\mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}[R(o)]$$
 
 The $$\mathcal{J}(\theta)$$ that we defined above is called a surrogate objective and obviously if we
 maximize $$\mathcal{J}(\theta)$$ we will maximize the expected reward. To maximize $$\mathcal{J}(\theta)$$
@@ -35,11 +35,11 @@ REINFORCE is presented in a slightly different, but mathematically identical, fo
 
 $$
 \begin{align}
-\nabla \mathcal{J}(\theta) &= \nabla \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|p)}[R(o)] \\
-&= \sum_{p, o} \nabla \pi_\theta(o|p) R(o) && \text{definition + linearity of expectations}\\
-&= \sum_{p, o} \frac{\pi_\theta(o|p)}{\pi_\theta(o|p) } \nabla \pi_\theta(o|p) R(o) && \text{idenity trick} \\
-&= \sum_{p, o} \pi_\theta(o|p) \nabla \log  \pi_\theta(o|p) R(o) && \text{log derivative trick} \\
-&= \nabla \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|p)}[ \log  \pi_\theta(o|p) R(o)] 
+\nabla \mathcal{J}(\theta) &= \nabla \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}[R(o)] \\
+&= \sum_{p, o} \nabla \pi_\theta(o|q) R(o) && \text{definition + linearity of expectations}\\
+&= \sum_{p, o} \frac{\pi_\theta(o|q)}{\pi_\theta(o|q) } \nabla \pi_\theta(o|q) R(o) && \text{idenity trick} \\
+&= \sum_{p, o} \pi_\theta(o|q) \nabla \log  \pi_\theta(o|q) R(o) && \text{log derivative trick} \\
+&= \nabla \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}[ \log  \pi_\theta(o|q) R(o)] 
 \end{align}
 $$
 
@@ -47,13 +47,13 @@ The final line is how REINFORCE is typically implemented in practice. Another va
 identity trick from line $$3$$ into the surrogate objective:
 
 $$
-\mathcal{J}(\theta) =\mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|p)}\Bigg[ \frac{\pi_\theta(o|p)}{ \pi_\theta(o|p)} R(o)\Bigg] 
+\mathcal{J}(\theta) =\mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}\Bigg[ \frac{\pi_\theta(o|q)}{ \pi_\theta(o|q)} R(o)\Bigg] 
 $$
 
 It should be evident that this is identical to the previous formulation because we're just multiplying by $$1$$. This may seem like a 
 silly thing to do, but it will make it easier to draw parallels with the GRPO loss down below.
 
-#### 1.2 From Rewards to Advantages
+### 2. From Rewards to Advantages
 
 GRPO was originally created to optimize verifiable domains where there is a single correct answer, such as math. In these
 domains, the reward is typically assigned to be either $$1$$ if the output is correct or $$0$$ otherwise. However, this
@@ -74,3 +74,29 @@ If the output is correct (incorrect), the advantage will be larger (smaller) tha
 how easy or hard the query was across the group, which is why the algorithm is called _Group Relative_ Policy Optimization.
 Unlike the rewards, the advantages will vary smoothly between $$0$$ and $$1$$ depending on the difficulty of the query, 
 thereby reducing variance and providing a stronger learning signal.
+
+<details class="post-aside">
+  <summary>Aside: Removing variance normalization</summary>
+  TODO
+</details>
+
+Instead of the reward, we can now maximize the advantage by updating our surrogate objective:
+
+$$
+\mathcal{J}(\theta) =\mathbb{E}_{q \sim p(Q), \{o\}_{i=1}^G \sim \pi_\theta(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{ \pi_\theta(o_i|q)} A_i \Bigg] 
+$$
+
+
+### 3. Going off-policy
+
+TODO: importance sampling weights
+
+### 4. Staying proximal to the old policy
+
+TODO: clipping, minimization
+TODO: Aside, may not be super necessary
+
+### 5. Staying proximal to the reference policy
+
+TODO: KL divergence
+TODO: Aside, unbiasing the KL
