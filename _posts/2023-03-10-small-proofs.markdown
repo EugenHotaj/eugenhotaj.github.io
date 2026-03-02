@@ -5,7 +5,7 @@ date:   2023-03-10
 tag: technical
 ---
 
-*Last updated: Dec 2, 2024*
+*Last updated: March 1, 2026*
 
 Through the course of my daily work and studies, I occasionally find myself writing small
 proofs and derivations. This post is an attempt to continuously catalogue interesting ones 
@@ -15,6 +15,7 @@ for future reference.
 3. Kullback-Leibler Divergence (Two Proofs)
 4. Show $$\log \det(\mathbf{A}) = \mathrm{Tr}(\log \mathbf{A})$$
 5. Posterior motivation for $$\sigma(\cdot)$$
+6. REINFORCE policy gradient
 
 <br><br>
 
@@ -224,3 +225,28 @@ $$
 a_k = \ln p(\mathbf{x}|\mathcal{C}=k)p(\mathcal{C}=k).
 $$
 Interestingly, the multiclass motivation is much easier to see and simpler to derive.
+
+<br>
+
+### 6. &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; REINFORCE policy gradient
+
+The cannonical policy gradient objective is to maximize expected reward $$R(x)$$ under some policy $$\pi_\theta(x)$$:
+
+$$
+\mathcal{J}(\theta) = \mathbb{E}_{\pi_\theta(x)}[R(x)]
+$$
+
+A straightforward way to do this is to follow $$\nabla_\theta \mathcal{J}(\theta)$$ towards better policies. With some
+minor algebraic manipulation, we can rewrite $$\nabla_\theta \mathcal{J}(\theta)$$ into a more convenient form for optimizaiton:
+
+$$
+\begin{align}
+\nabla_\theta \mathcal{J}(\theta) &= \nabla_\theta \mathbb{E}_{\pi_\theta(x)}[R(x)] \\
+&= \int_{x} \nabla_\theta \pi_\theta(x) R(x) && \text{definition + linearity of expectations}\\
+&= \int_{x} \frac{\pi_\theta(x)}{\pi_\theta(x) } \nabla_\theta \pi_\theta(x) R(x) && \text{idenity trick} \\
+&= \int_{x} \pi_\theta(x) \nabla_\theta \log  \pi_\theta(x) R(x) && \text{log derivative trick} \\
+&= \mathbb{E}_{\pi_\theta(x)}[ \nabla_\theta \log \pi_\theta(x) R(x)] 
+\end{align}
+$$
+
+The last line above is the REINFORCE policy gradient.
