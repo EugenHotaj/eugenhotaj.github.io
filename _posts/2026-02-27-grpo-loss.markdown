@@ -14,7 +14,7 @@ Our primary focus is to understand how GRPO applies to LLM training and tailor t
 
 ### 1. Maximizing Rewards
 
-The fundemental objective of policy gradient algorithms is to maximize the expected reward (technically the expected return 
+The fundamental objective of policy gradient algorithms is to maximize the expected reward (technically the expected return 
 but in our setup this is identical):
 
 $$\mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}[R(o)]$$
@@ -37,7 +37,7 @@ $$
 \begin{align}
 \nabla \mathcal{J}(\theta) &= \nabla \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}[R(o)] \\
 &= \sum_{p, o} \nabla \pi_\theta(o|q) R(o) && \text{definition + linearity of expectations}\\
-&= \sum_{p, o} \frac{\pi_\theta(o|q)}{\pi_\theta(o|q) } \nabla \pi_\theta(o|q) R(o) && \text{idenity trick} \\
+&= \sum_{p, o} \frac{\pi_\theta(o|q)}{\pi_\theta(o|q) } \nabla \pi_\theta(o|q) R(o) && \text{identity trick} \\
 &= \sum_{p, o} \pi_\theta(o|q) \nabla \log  \pi_\theta(o|q) R(o) && \text{log derivative trick} \\
 &= \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}[ \nabla \log  \pi_\theta(o|q) R(o)] 
 \end{align}
@@ -81,7 +81,7 @@ times. This makes credit assignment difficult and can lead to high variance grad
 we would like is for the reward to smoothly vary from $$0\rightarrow1$$ depending on the difficulty of the question.
 
 One way to achieve this is by computing and maximizing advantages instead of rewards. Suppose for a given query $$q$$ 
-we sample $$G$$ ouputs $$\{o_1, \dots, o_G\}$$ with rewards $$\{r_1 = R(o_1), \dots, r_G = R(o_G)\}$$. Then for a single 
+we sample $$G$$ outputs $$\{o_1, \dots, o_G\}$$ with rewards $$\{r_1 = R(o_1), \dots, r_G = R(o_G)\}$$. Then for a single 
 output $$o_i$$ we can compute the advantage as:
 
 $$
@@ -118,7 +118,7 @@ In modern Reinforcement Learning systems, the sampler (what autoregressively gen
 overall system efficiency. To stay on-policy, the trainer must synchronize its parameters with the sampler after every gradient 
 step so the sampler can generate the next set of outputs with the most up-to-date policy parameters.
 
-There are two ways this system can go off-policy. The first is a concious decision by the algorithm designer to trade off some
+There are two ways this system can go off-policy. The first is a conscious decision by the algorithm designer to trade off some
 degree of "off-policyness" for efficiency. For example, modern inference systems like vLLM [[3]] batch generations and it can 
 be much more efficient to generate huge batches of outputs instead of generating them one-by-one. To increase efficiency we
 could generate a large batch of outputs with parameters $$\pi_\text{sampler}$$ and use them to take multiple policy gradient
@@ -130,8 +130,8 @@ been shown to significantly improve system throughput without downside to the ov
 The second, more insidious way, is from the fact that the sampler and trainer are indeed different systems. Even in the fully 
 on-policy case where the trainer parameters are always synced with the sampler, the sampler will usually produce different
 token probabilities compared to the trainer [[5]]. This can be because of differing CUDA kernels, differing precisions, 
-batch indeterminism [[6]], quantization of the KV cache in the sampler, etc. Therefore, unless we take an unreasonabe 
-level of care to identically mathc sampler and trainer behavior, we cannot escape going off-policy in modern RL systems.
+batch indeterminism [[6]], quantization of the KV cache in the sampler, etc. Therefore, unless we take an unreasonable 
+level of care to identically match sampler and trainer behavior, we cannot escape going off-policy in modern RL systems.
 
 #### 3.1 Importance Sampling
 
