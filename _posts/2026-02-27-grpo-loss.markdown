@@ -6,7 +6,7 @@ tag: technical
 ---
 
 Group Relative Policy Optimization (GRPO) is a widely used policy gradient algorithm that was popularized by 
-DeepSeek [1]. In this post, we start entirely from first principles and progressively add complexity until we get 
+DeepSeek [[1]]. In this post, we start entirely from first principles and progressively add complexity until we get 
 to the full GRPO objective.
 
 Our primary focus is to understand how GRPO applies to LLM training and tailor the notation specifically towards that.
@@ -27,7 +27,7 @@ to our policy and iteratively follow the gradient better policies.
 #### 1.1 REINFORCE
 
 Directly differentiating $$\nabla \mathcal{J}(\theta)$$ corresponds to the widely used REINFORCE policy gradient 
-algorithm [2]. However, in its current form, the objective is difficult to optimize.
+algorithm [[2]]. However, in its current form, the objective is difficult to optimize.
 For example, to optimize expectations we usually take Monte-Carlo samples, differentiate them individually,
 and average their gradients to approximate the true gradient. However, our policy $$\pi_\theta$$ never 
 appears inside the expectation, only the rewards, which are typically not differentiable. To get around this, 
@@ -91,24 +91,83 @@ $$
 In essence, the advantage of each output is the reward normalized to have zero-mean, unit-variance across the group. 
 If the output is correct (incorrect), the advantage will be larger (smaller) than the mean by an amount _relative_ to
 how easy or hard the query was across the group, which is why the algorithm is called _Group Relative_ Policy Optimization.
-Unlike the rewards, the advantages will vary smoothly between $$0$$ and $$1$$ depending on the difficulty of the query, 
-thereby reducing variance and providing a stronger learning signal.
+Unlike the rewards, the advantages will vary smoothly from $$0\rightarrow1$$ thereby reducing variance and providing 
+a stronger learning signal.
 
 <details class="post-aside">
   <summary>Aside: Removing variance normalization</summary>
   TODO
 </details>
 
-Instead of the reward, we can now maximize the advantage by updating our surrogate objective:
+We can now update our surrogate objective to maximize advantages instead of rewards:
 
 $$
-\mathcal{J}(\theta) =\mathbb{E}_{q \sim p(Q), \{o\}_{i=1}^G \sim \pi_\theta(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{ \pi_\theta(o_i|q)} A_i \Bigg] 
+\mathcal{J}(\theta) =\mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\theta(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{ \pi_\theta(o_i|q)} A_i \Bigg] 
 $$
 
 
 ### 3. Going off-policy
 
-TODO: importance sampling weights
+So far we have assumed the outputs are sampled from the current policy $$\{o_i\}_{i=1}^G \sim \pi_\theta(O\vert q)$$ and in an
+ideal world this would always be the case. Unfortunately, because autoregressive sampling from LLMs is so expensive, we must accept
+going off-policy for increased system efficiency and throughput. So going off-policy is an _efficiency trade-off_ we're
+accepting _not something desirable_ from an algorithmic or correctness perspective.
+
+In modern Reinforcement Learning systems, the sampler (what autoregressively generates outputs) and the trainer
+(what computes the forward/backward pass and updates the parameters) are implemented by separate systems in order to maximize
+overall system efficiency. To stay on-policy, the trainer must synchronize its parameters with the sampler after every gradient 
+step so the sampler can generate the next set of outputs with the most up-to-date policy parameters.
+
+There are two ways this system can go off-policy. The first is a concious decision by the algorithm designer to trade off some
+degree of "off-policyness" for efficiency. For example, modern inference systems like vLLM [[3]] batch generations and it can 
+be much more efficient to generate huge batches of outputs instead of generating them one-by-one. To increase efficiency we
+could generate a large batch of outputs with parameters $$\pi_\text{sampler}$$ and use them to take multiple policy gradient
+steps on $$\pi_\theta$$ before synchronizing the new parameters $$\theta$$ with the sampler. Taking this approach to the extreme,
+we could entirely decouple the sampler and the trainer so the sampler is continuously generating outputs while the trainer
+is continuously updating the policy and sending the latest parameters to the sampler. Such approaches, known broadly as Async-RL, have 
+been shown to significantly improve system throughput without downside to the overall optimization [[4]].
+
+The second, more insidious way, is from the fact that the sampler and trainer are indeed different systems. Even in the fully 
+on-policy case where the trainer parameters are always synced with the sampler, the sampler will usually produce different
+token probabilities compared to the trainer [[5]]. This can be because of differing CUDA kernels, differing precisions, 
+batch indeterminism [[6]], quantization of the KV cache in the sampler, etc. Therefore, unless we take an unreasonabe 
+level of care to identically mathc sampler and trainer behavior, we cannot escape going off-policy in modern RL systems.
+
+#### 3.1 Importance Sampling
+
+The major downside of going off-policy is that we're no longer optimizing the correct objective since the outputs were sampled from
+$$\pi_\text{sampler}$$ instead of $$\pi_\theta$$. Instead we are optimizing:
+
+$$
+\mathcal{J}(\theta) =\mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{sampler}(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{ \pi_\theta(o_i|q)} A_i \Bigg] 
+$$
+
+This mismatch can have real, sometimes catastrophic consequences in practice. For example, it can lead to much worse results than
+an equivalent on-policy run or even cause runs to collapse entirely towards $$0$$ reward. This negative behavior becomes more prevalent
+as the amount of "off-policyness" increases, the sequence length increases, or the number of optimization steps increases.
+
+Fortunately, the fix is straightforward and all we need to do is correct the expectation so we go back to optimizing the correct objective. We can 
+do this by multiplying by the importance sampling weights $$\pi_\theta(o_i|q) / \pi_\text{sampler}(o_i|q)$$:
+
+$$
+\begin{align}
+\mathcal{J}(\theta) &= \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{sampler}(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{\pi_\text{sampler}(o_i|q)} \frac{\pi_\theta(o_i|q)}{ \pi_\theta(o_i|q)} A_i \Bigg] \\
+&= \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{sampler}(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{\pi_\text{sampler}(o_i|q)} A_i \Bigg] \\
+&= \sum_{q, o_i} \pi_\text{sampler}(o_i|q) \frac{\pi_\theta(o_i|q)}{\pi_\text{sampler}(o_i|q)} A_i  && \text{definition of expectation} \\
+&= \sum_{q, o_i} \pi_\theta(o_i|q) A_i \\
+&= \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\theta (O|q)}[ A_i ] && \text{definition of expectation}
+\end{align}
+$$
+
+As we can see from the derivation above, multiplying by the importance sampling weights indeed ensures we're optimizing the correct objective.
+Putting everything together, we now have:
+
+$$
+\mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{sampler}(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{\pi_\text{sampler}(o_i|q)} A_i \Bigg]
+$$
+
+Hopefully the connection to the "silly" surrogate objective is now clear: the form of our latest surrogate objective is identical to the previous one except we swap
+$$\pi_\text{sampler}$$ for $$\pi_\theta$$ in the expectation and the denominator.
 
 ### 4. Staying proximal to the old policy
 
@@ -119,3 +178,11 @@ TODO: Aside, may not be super necessary
 
 TODO: KL divergence
 TODO: Aside, unbiasing the KL
+
+
+[1]: https://arxiv.org/abs/2402.03300
+[2]: https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf
+[3]: https://vllm.ai
+[4]: https://arxiv.org/abs/2509.19128
+[5]: https://fengyao.notion.site/Your-Efficient-RL-Framework-Secretly-Brings-You-Off-Policy-RL-Training-237721e3f6c48094ad67dad3ac091c56?pvs=25#28b721e3f6c480c3a756f8fb319e860d
+[6]: https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference
