@@ -1,12 +1,12 @@
 ---
 layout: post
-title: (WIP) Building GRPO From Scratch
+title: (WIP) GRPO from First Principles
 date: 2026-02-27
 tag: technical
 ---
 
-Group Relative Policy Optimization (GRPO) is a widely used reinforcement learning algorithm that was popularized by 
-DeepSeek. In this post, we start entirely from first principles and progressively add complexity until we get 
+Group Relative Policy Optimization (GRPO) is a widely used policy gradient algorithm that was popularized by 
+DeepSeek [1]. In this post, we start entirely from first principles and progressively add complexity until we get 
 to the full GRPO objective.
 
 Our primary focus is to understand how GRPO applies to LLM training and tailor the notation specifically towards that.
@@ -14,24 +14,24 @@ Our primary focus is to understand how GRPO applies to LLM training and tailor t
 
 ### 1. Maximizing Rewards
 
-At a fundemental level, reinforcement learning algorithms all boil down to maximizing an expected reward:
+The fundemental objective of policy gradient algorithms is to maximize the expected reward (technically the expected return 
+but in our setup this is identical):
 
 $$\mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}[R(o)]$$
 
-The $$\mathcal{J}(\theta)$$ that we defined above is called a surrogate objective and obviously if we
-maximize $$\mathcal{J}(\theta)$$ we will maximize the expected reward. To maximize $$\mathcal{J}(\theta)$$
-we need to find parameters $$\theta$$ for our LLM policy $$pi_\theta$$ that will produce good outputs $$o$$
-over our query distribution $$q \sim p(Q)$$.
+To maximize $$\mathcal{J}(\theta)$$ we need to find parameters $$\theta$$ for our LLM policy $$\pi_\theta$$ that will produce 
+good outputs $$o$$ over our query distribution $$q \sim p(Q)$$. One straightforward way is to differentiate with respect
+to our policy and iteratively follow the gradient better policies.
 
 
 #### 1.1 REINFORCE
 
-Differentiating the surrogate objective above $$\nabla \mathcal{J}(\theta)$$ already corresponds to the widely used 
-REINFORCE policy gradient algorithm [2]. However, it's unclear how we'd optimize it in the form its currently
-written. For example, to optimize expectations we usually take Monte-Carlo samples, differentiate them individually,
-and average the gradients to approximate the expectation's gradient. However, our policy $$\pi_\theta$$ never 
-appears inside the expectation, only the rewards, and those are not differentiable. To get around this, 
-REINFORCE is presented in a slightly different, but mathematically identical, form:
+Directly differentiating $$\nabla \mathcal{J}(\theta)$$ corresponds to the widely used REINFORCE policy gradient 
+algorithm [2]. However, in its current form, the objective is difficult to optimize.
+For example, to optimize expectations we usually take Monte-Carlo samples, differentiate them individually,
+and average their gradients to approximate the true gradient. However, our policy $$\pi_\theta$$ never 
+appears inside the expectation, only the rewards, which are typically not differentiable. To get around this, 
+we can use a few definitions and tricks to derive a _surrogate objective_ which is easier to optimize:
 
 $$
 \begin{align}
@@ -39,30 +39,49 @@ $$
 &= \sum_{p, o} \nabla \pi_\theta(o|q) R(o) && \text{definition + linearity of expectations}\\
 &= \sum_{p, o} \frac{\pi_\theta(o|q)}{\pi_\theta(o|q) } \nabla \pi_\theta(o|q) R(o) && \text{idenity trick} \\
 &= \sum_{p, o} \pi_\theta(o|q) \nabla \log  \pi_\theta(o|q) R(o) && \text{log derivative trick} \\
-&= \nabla \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}[ \log  \pi_\theta(o|q) R(o)] 
+&= \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}[ \nabla \log  \pi_\theta(o|q) R(o)] 
 \end{align}
 $$
 
-The final line is how REINFORCE is typically implemented in practice. Another valid formulation is to pull the 
-identity trick from line $$3$$ into the surrogate objective:
+The final corresponds to the REINFORCE objective as it is typically presented. In practical implementations, we
+only need to implement the term inside the expectation and let autograd handle the rest:
+
+```python
+def reinforce(
+  logps: torch.Tensor    # [batch_size, seq_len]
+  masks: torch.Tensor    # [batch_size, seq_len]
+  rewards: torch.Tensor  # [batch_size, 1] 
+) -> torch.Tensor: 
+    masked_obj = (logps * masks) * rewards
+    token_level_avg = (masked_obj).sum(dim=1) / masks.sum(dim=1)
+    return token_level_avg.mean()
+```
+
+Two minor things to note are (1) we compute the objective on the output tokens only and (2) we take a token-level
+(instead of a sequence-level) average.
+
+We can formulate a different surrogate objective by pulling the identity trick into the surrogate objective itself:
 
 $$
 \mathcal{J}(\theta) =\mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}\Bigg[ \frac{\pi_\theta(o|q)}{ \pi_\theta(o|q)} R(o)\Bigg] 
 $$
 
-It should be evident that this is identical to the previous formulation because we're just multiplying by $$1$$. This may seem like a 
-silly thing to do, but it will make it easier to draw parallels with the GRPO loss down below.
+Obviously this is identical to before because we're simply multiplying the objective by $$1$$. If we're careful
+during implementation by adding a `stop_gradient` to the denominator, it should also give us identical gradients 
+to the $$ \log $$-based surrogate objective without having to rewrite anything. This may seem like a silly, contrived 
+thing to do, but it will help us build towards the full GRPO objective below.
 
 ### 2. From Rewards to Advantages
 
-GRPO was originally created to optimize verifiable domains where there is a single correct answer, such as math. In these
-domains, the reward is typically assigned to be either $$1$$ if the output is correct or $$0$$ otherwise. However, this
-formulation doesn't distinguish easy vs hard queries very well. An easy query which the model gets correct $$9/10$$ times 
-gets the same reward as a hard query which the model gets correct only $$1/10$$ times. This makes credit assignment
-difficult and can lead to high variance gradients and unstable learning.
+GRPO was originally created for domains such as math where there is a single, verifiable correct answer. In these
+domains, the reward is typically assigned to $$1$$ if the output is correct and $$0$$ otherwise. One downside of this
+formulation is that it doesn't distinguish between easy vs hard queries very well. For example, an easy query which the 
+model gets correct $$9/10$$ times is assigned the same reward as a hard query which the model gets correct only $$1/10$$ 
+times. This makes credit assignment difficult and can lead to high variance gradients and unstable learning. What 
+we would like is for the reward to smoothly vary from $$0\rightarrow1$$ depending on the difficulty of the question.
 
-One way to reduce the variance is by trying to maximize advantages instead of rewards. Suppose that for a given query $$q$$ 
-we sample $$G$$ ouputs $$\{o_1, \dots, o_G\}$$ with rewards $$\{r_1 = R(o_1), \dots, r_G = R(o_G)\}$$, then for a single 
+One way to achieve this is by computing and maximizing advantages instead of rewards. Suppose for a given query $$q$$ 
+we sample $$G$$ ouputs $$\{o_1, \dots, o_G\}$$ with rewards $$\{r_1 = R(o_1), \dots, r_G = R(o_G)\}$$. Then for a single 
 output $$o_i$$ we can compute the advantage as:
 
 $$
