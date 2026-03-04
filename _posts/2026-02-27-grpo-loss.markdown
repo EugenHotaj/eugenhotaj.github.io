@@ -121,58 +121,113 @@ step so the sampler can generate the next set of outputs with the most up-to-dat
 There are two ways this system can go off-policy. The first is a conscious decision by the algorithm designer to trade off some
 degree of "off-policyness" for efficiency. For example, modern inference systems like vLLM [[3]] batch generations and it can 
 be much more efficient to generate huge batches of outputs instead of generating them one-by-one. To increase efficiency we
-could generate a large batch of outputs with parameters $$\pi_\text{sampler}$$ and use them to take multiple policy gradient
-steps on $$\pi_\theta$$ before synchronizing the new parameters $$\theta$$ with the sampler. Taking this approach to the extreme,
+could generate a large batch of outputs with parameters $$\pi_\text{old}$$ and use them to take multiple policy gradient
+steps on $$\pi_\theta$$ before synchronizing the new parameters with the sampler. Taking this approach to the extreme,
 we could entirely decouple the sampler and the trainer so the sampler is continuously generating outputs while the trainer
 is continuously updating the policy and sending the latest parameters to the sampler. Such approaches, known broadly as Async-RL, have 
-been shown to significantly improve system throughput without downside to the overall optimization [[4]].
+been shown to significantly improve system throughput without major quality degradation [[4]].
 
-The second, more insidious way, is from the fact that the sampler and trainer are indeed different systems. Even in the fully 
+The second, more insidious way, is from the fact that the sampler and trainer are indeed different systems. Even in the 
 on-policy case where the trainer parameters are always synced with the sampler, the sampler will usually produce different
-token probabilities compared to the trainer [[5]]. This can be because of differing CUDA kernels, differing precisions, 
-batch indeterminism [[6]], quantization of the KV cache in the sampler, etc. Therefore, unless we take an unreasonable 
+token probabilities than then trainer [[5]]. This can be because of differing CUDA kernels, differing precisions, 
+batch non-determinism [[6]], quantization of the KV cache in the sampler, etc. Therefore, unless we take an unreasonable 
 level of care to identically match sampler and trainer behavior, we cannot escape going off-policy in modern RL systems.
 
 #### 3.1 Importance Sampling
 
 The major downside of going off-policy is that we're no longer optimizing the correct objective since the outputs were sampled from
-$$\pi_\text{sampler}$$ instead of $$\pi_\theta$$. Instead we are optimizing:
+$$\pi_\text{old}$$ instead of $$\pi_\theta$$. Instead we are optimizing:
 
 $$
-\mathcal{J}(\theta) =\mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{sampler}(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{ \pi_\theta(o_i|q)} A_i \Bigg] 
+\mathcal{J}(\theta) =\mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{old}(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{ \pi_\theta(o_i|q)} A_i \Bigg] 
 $$
 
-This mismatch can have real, sometimes catastrophic consequences in practice. For example, it can lead to much worse results than
+This mismatch can have real, sometimes catastrophic, consequences in practice. For example, it can lead to much worse results than
 an equivalent on-policy run or even cause runs to collapse entirely towards $$0$$ reward. This negative behavior becomes more prevalent
-as the amount of "off-policyness" increases, the sequence length increases, or the number of optimization steps increases.
+as the amount of "off-policyness", sequence length, or number of optimization steps increase.
 
-Fortunately, the fix is straightforward and all we need to do is correct the expectation so we go back to optimizing the correct objective. We can 
-do this by multiplying by the importance sampling weights $$\pi_\theta(o_i|q) / \pi_\text{sampler}(o_i|q)$$:
+Fortunately, the fix is straightforward and all we need to do is correct the expectation so we optimize the correct objective again. We can 
+do this by multiplying importance sampling weights $$\pi_\theta(o_i|q) / \pi_\text{old}(o_i|q)$$ with our previous objective:
 
 $$
 \begin{align}
-\mathcal{J}(\theta) &= \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{sampler}(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{\pi_\text{sampler}(o_i|q)} \frac{\pi_\theta(o_i|q)}{ \pi_\theta(o_i|q)} A_i \Bigg] \\
-&= \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{sampler}(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{\pi_\text{sampler}(o_i|q)} A_i \Bigg] \\
-&= \sum_{q, o_i} \pi_\text{sampler}(o_i|q) \frac{\pi_\theta(o_i|q)}{\pi_\text{sampler}(o_i|q)} A_i  && \text{definition of expectation} \\
+\mathcal{J}(\theta) &= \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{old}(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{\pi_\text{old}(o_i|q)} \frac{\pi_\theta(o_i|q)}{ \pi_\theta(o_i|q)} A_i \Bigg] \\
+&= \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{old}(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{\pi_\text{old}(o_i|q)} A_i \Bigg] \\
+&= \sum_{q, o_i} \pi_\text{old}(o_i|q) \frac{\pi_\theta(o_i|q)}{\pi_\text{old}(o_i|q)} A_i  && \text{definition of expectation} \\
 &= \sum_{q, o_i} \pi_\theta(o_i|q) A_i \\
 &= \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\theta (O|q)}[ A_i ] && \text{definition of expectation}
 \end{align}
 $$
 
 As we can see from the derivation above, multiplying by the importance sampling weights indeed ensures we're optimizing the correct objective.
-Putting everything together, we now have:
+Putting everything together, the objective we need to maximize is now:
 
 $$
-\mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{sampler}(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{\pi_\text{sampler}(o_i|q)} A_i \Bigg]
+\mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{old}(O|q)}\Bigg[ \frac{\pi_\theta(o_i|q)}{\pi_\text{old}(o_i|q)} A_i \Bigg]
 $$
 
 Hopefully the connection to the "silly" surrogate objective is now clear: the form of our latest surrogate objective is identical to the previous one except we swap
-$$\pi_\text{sampler}$$ for $$\pi_\theta$$ in the expectation and the denominator.
+$$\pi_\text{old}$$ for $$\pi_\theta$$ in the expectation and the denominator.
 
 ### 4. Staying proximal to the old policy
 
-TODO: clipping, minimization
-TODO: Aside, may not be super necessary
+Although the importance sampling weights ensure we're not optimizing the correct objective, they unfortunatley introduce new sources of 
+potential issues that can lead to slow or unstable optimization. To understand why, we can consider what happens when $$\pi_\theta$$ and $$\pi_\text{old}$$
+differ in magnitude. If $$\pi_\text{old}$$ is tiny when $$\pi_\theta \gg 0$$ then the ratio $$\pi_\theta / \pi_\text{old}$$ will be large leading
+to large policy gradients. Conversley, if $$\pi_\theta$$ is tiny when $$\pi_\text{old} \gg 0$$ then $$\pi_\theta / \pi_\text{old} \approx 0$$ 
+and learning will be slow. As we get further off-policy, this problem compounds leading to ratios having high variance which means 
+the policy gradients will have high variance and training becomes unstable and can potentially collapse.
+
+Therefore, a desirable property would be for $$\pi_\theta / \pi_\text{old}$$ to be as close to $$1$$ as possible and match the on-policy case. 
+We can enforce this explicitly by clipping the ratio any time it gets $$\varepsilon$$ away from $$1$$:
+
+$$
+\text{clip}\Bigg(\frac{\pi_\theta(o_i|q)}{\pi_\text{old}(o_i|q)}, 1-\varepsilon, 1+\varepsilon\Bigg)
+$$
+
+Clipping the ratio effectively sets its gradient to $$0$$ whenever it falls outside of $$[1-\varepsilon, 1+\varepsilon]$$ ensuring 
+$$\pi_\theta$$ remains close (or proximal) to $$\pi_\text{old}$$ as we take gradient steps.
+
+<details class="post-aside">
+  <summary>Aside: Trust region motivation for clipping</summary>
+  TODO
+</details>
+
+The DeepSeekMath paper [[1]] which originally introduced GRPO follows PPO [[7]] and sets $$\varepsilon = 0.2$$. Recent papers [[8], [9]] have found
+that setting a higher clipping upper bound of $$0.28$$ can help with exploration and DeepSeek-R1 [[10]] sets it even higher to $$10$$. 
+In my experience, I have also found the original $$\varepsilon = 0.2$$ to be too conservative and use a clipping value closer to what DeepSeek-R1
+proposes.
+
+#### 4.1 Taking a conservative lower bound
+
+The clipping introduces yet another issue we need to fix. Depending on the sign of the advantage $$A_i$$, the clipped objective can
+be _larger_ than the unclipped objective. The easiest way to see this is by exhaustively considering all possible interactions between 
+the advantage and the importance sampling ratio. Given advantage $$A_i$$ and ratio $$r_i(\theta) = \pi_\theta(o_i|q) / \pi_\text{old}(o_i|q)$$ 
+we have:
+
+Advantage | Ratio | Clipped vs Unclipped Objective 
+$$A_i > 0$$ | $$r_i(\theta) < 1 - \varepsilon$$ | $$ \text{clip}(r_i(\theta), 1 - \varepsilon, 1 + \varepsilon) A_i > r_i(\theta) A_i$$
+$$A_i > 0$$ | $$r_i(\theta) > 1 - \varepsilon$$ | $$ \text{clip}(r_i(\theta), 1 - \varepsilon, 1 + \varepsilon) A_i < r_i(\theta) A_i$$
+$$A_i < 0$$ | $$r_i(\theta) < 1 - \varepsilon$$ | $$ \text{clip}(r_i(\theta), 1 - \varepsilon, 1 + \varepsilon) A_i < r_i(\theta) A_i$$
+$$A_i < 0$$ | $$r_i(\theta) > 1 - \varepsilon$$ | $$ \text{clip}(r_i(\theta), 1 - \varepsilon, 1 + \varepsilon) A_i > r_i(\theta) A_i$$
+
+As we can see from rows $$1$$ and $$4$$ in the table above, using the clipped objective can artificially inflate how good the current
+policy is. A simple trick to mitigate this is to always take the smaller of the two objectives:
+
+$$
+\min(r_i(\theta)A_i, \text{clip}(r_i(\theta), 1-\varepsilon, 1+\varepsilon))
+$$
+
+Plugging this into the surrogate objective from the previous section gives us our latest objective:
+
+$$
+\mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{old}(O|q)}\Bigg[ 
+  \min \Bigg(
+    \frac{\pi_\theta(o_i|q)}{\pi_\text{old}(o_i|q)} A_i,
+    \text{clip}\Bigg(\frac{\pi_\theta(o_i|q)}{\pi_\text{old}(o_i|q)}, 1 - \varepsilon, 1 + \varepsilon\Bigg) A_i 
+  \Bigg)
+\Bigg]
+$$
 
 ### 5. Staying proximal to the reference policy
 
@@ -186,3 +241,7 @@ TODO: Aside, unbiasing the KL
 [4]: https://arxiv.org/abs/2509.19128
 [5]: https://fengyao.notion.site/Your-Efficient-RL-Framework-Secretly-Brings-You-Off-Policy-RL-Training-237721e3f6c48094ad67dad3ac091c56?pvs=25#28b721e3f6c480c3a756f8fb319e860d
 [6]: https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference
+[7]: https://arxiv.org/abs/1707.06347
+[8]: https://arxiv.org/pdf/2503.14476
+[9]: https://arxiv.org/pdf/2510.13786
+[10]: https://arxiv.org/pdf/2501.12948v2
