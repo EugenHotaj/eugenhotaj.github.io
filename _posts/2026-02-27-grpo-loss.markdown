@@ -48,9 +48,9 @@ only need to implement the term inside the expectation and let autograd handle t
 
 ```python
 def reinforce(
-  logps: torch.Tensor    # [batch_size, seq_len]
-  masks: torch.Tensor    # [batch_size, seq_len]
-  rewards: torch.Tensor  # [batch_size, 1] 
+  logps: torch.Tensor,    # [batch_size, seq_len]
+  masks: torch.Tensor,    # [batch_size, seq_len]
+  rewards: torch.Tensor,  # [batch_size, 1] 
 ) -> torch.Tensor: 
     masked_obj = (logps * masks) * rewards
     token_level_avg = (masked_obj).sum(dim=1) / masks.sum(dim=1)
@@ -212,13 +212,14 @@ $$A_i < 0$$ | $$r_i(\theta) < 1 - \varepsilon$$ | $$ \text{clip}(r_i(\theta), 1 
 $$A_i < 0$$ | $$r_i(\theta) > 1 - \varepsilon$$ | $$ \text{clip}(r_i(\theta), 1 - \varepsilon, 1 + \varepsilon) A_i > r_i(\theta) A_i$$
 
 As we can see from rows $$1$$ and $$4$$ in the table above, using the clipped objective can artificially inflate how good the current
-policy is. A simple trick to mitigate this is to always take the smaller of the two objectives:
+policy is. A simple trick to mitigate this is to always take the minimum of the two objectives:
 
 $$
 \min(r_i(\theta)A_i, \text{clip}(r_i(\theta), 1-\varepsilon, 1+\varepsilon))
 $$
 
-Plugging this into the surrogate objective from the previous section gives us our latest objective:
+Now our surrogate objective is always a conservative lower bound on the unclipped objective. 
+Plugging this into what we had before gives us our latest surrogate objective:
 
 $$
 \mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{old}(O|q)}\Bigg[ 
@@ -231,9 +232,81 @@ $$
 
 ### 5. Staying proximal to the reference policy
 
-TODO: KL divergence
-TODO: Aside, unbiasing the KL
+The final extension GRPO makes is to add a KL-Divergence $$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref})$$. This 
+penalizes the policy $$\pi_\theta$$ from moving too far away from a reference policy $$\pi_\text{ref}$$. Both the
+policy and the reference models are typically initialized from a previously trained SFT model so that 
+$$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref}) = 0$$ at the start of training.
 
+
+
+The original DeepSeekMath paper approximated the $$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref})$$ using the k3 estimator [[11]] as:
+
+$$
+\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref}) = \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{old}(O|q)} \Bigg[ 
+  \Bigg(\frac{\pi_\text{ref}(o_i | q)}{\pi_\theta(o_i | q)} - 1 \Bigg) - \log \frac{\pi_\text{ref}(o_i | q)}{\pi_\theta(o_i | q)}
+\Bigg]
+$$
+
+However, this leads to a biased estimate of the KL-Divergence because the outputs o_i are generated from $$\pi_\text{old}$$ instead of 
+$$\pi_\theta$$. DeepSeek-v3.2 [[12]] fixes this by reapplyingthe same importance sampling approach we described in section **3.1**. Namely, 
+we multiply the term inside the expectation by $$\pi_\theta(o_i | q) / \pi_\text{old}(o_i |q)$$:
+
+$$
+\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref}) = \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{old}(O|q)} \Bigg[ 
+  \frac{\pi_\theta(o_i | q)}{\pi_\text{old}(o_i | q)}
+  \Bigg\{
+  \Bigg( \frac{\pi_\text{ref}(o_i | q)}{\pi_\theta(o_i | q)} - 1 \Bigg) 
+  - \log \frac{\pi_\text{ref}(o_i | q)}{\pi_\theta(o_i | q)}
+  \Bigg\}
+\Bigg]
+$$
+
+Plugging the KL-Divergence into our previous objective gives us the full GRPO surrogate objective:
+
+$$
+\mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{old}(O|q)}\Bigg[ 
+  \min \Bigg(
+    \frac{\pi_\theta(o_i|q)}{\pi_\text{old}(o_i|q)} A_i,
+    \text{clip}\Bigg(\frac{\pi_\theta(o_i|q)}{\pi_\text{old}(o_i|q)}, 1 - \varepsilon, 1 + \varepsilon\Bigg) A_i 
+  \Bigg)
+  - \beta \mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref})
+\Bigg]
+$$
+
+Where $$\beta$$ is a hyperparameter that controls how much we care about maintaining a low KL-Divergence. We can implement
+the GRPO objective in code by directly translating the math like so:
+
+```python
+def grpo(
+  pi_logps: torch.Tensor,      # [batch_size, seq_len]
+  old_logps: torch.Tensor,     # [batch_size, seq_len]
+  ref_logps: torch.Tensor,     # [batch_size, seq_len]
+  masks: torch.Tensor,         # [batch_size, seq_len]
+  advantages: torch.Tensor,    # [batch_size, 1] 
+  eps: float = 0.2,
+  beta: float = 0.1,
+) -> torch.Tensor: 
+    log_ratios = pi_logps - old_logps
+
+    ratios = torch.exp(log_ratios)
+    clipped_ratios = torch.clip(ratios, 1 - eps, 1 + eps)
+    lower_bound = torch.minimum(ratios * advantage, clipped_ratios * advantage)
+
+    k3 = torch.exp(ref_logps - pi_logps) - 1 - (ref_logps - pi_logps)
+    unbiased_k3 = log_ratios * k3
+    
+    masked_obj = (lower_bound - beta * unbiased_k3) * masks
+    token_level_avg = (masked_obj).sum(dim=1) / masks.sum(dim=1)
+    return token_level_avg.mean()
+```
+
+Where again we have take a token-level average over the objective.
+
+### Conclusion
+
+In this post we have started from the principle of maximizing rewards and have shown how to progressively add complexity until
+we arrive at the full GRPO surrogate objective. If we take a step back, we see that GRPO (and PPO) is nothing but an 
+effort to mitigate off-policy behavior.
 
 [1]: https://arxiv.org/abs/2402.03300
 [2]: https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf
@@ -242,6 +315,8 @@ TODO: Aside, unbiasing the KL
 [5]: https://fengyao.notion.site/Your-Efficient-RL-Framework-Secretly-Brings-You-Off-Policy-RL-Training-237721e3f6c48094ad67dad3ac091c56?pvs=25#28b721e3f6c480c3a756f8fb319e860d
 [6]: https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference
 [7]: https://arxiv.org/abs/1707.06347
-[8]: https://arxiv.org/pdf/2503.14476
-[9]: https://arxiv.org/pdf/2510.13786
-[10]: https://arxiv.org/pdf/2501.12948v2
+[8]: https://arxiv.org/abs/2503.14476
+[9]: https://arxiv.org/abs/2510.13786
+[10]: https://arxiv.org/abs/2501.12948v2
+[11]: http://joschu.net/blog/kl-approx.html
+[12]: https://arxiv.org/abs/2512.02556
