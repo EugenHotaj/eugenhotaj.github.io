@@ -1,6 +1,6 @@
 ---
 layout: post
-title: (WIP) GRPO from First Principles
+title: GRPO from First Principles
 date: 2026-02-27
 tag: technical
 ---
@@ -78,7 +78,7 @@ domains, the reward is typically assigned to $$1$$ if the output is correct and 
 formulation is that it doesn't distinguish between easy vs hard queries very well. For example, an easy query which the 
 model gets correct $$9/10$$ times is assigned the same reward as a hard query which the model gets correct only $$1/10$$ 
 times. This makes credit assignment difficult and can lead to high variance gradients and unstable learning. What 
-we would like is for the reward to smoothly vary from $$0\rightarrow1$$ depending on the difficulty of the question.
+we would like is for the reward to vary smoothly depending on the difficulty of the question.
 
 One way to achieve this is by computing and maximizing advantages instead of rewards. Suppose for a given query $$q$$ 
 we sample $$G$$ outputs $$\{o_1, \dots, o_G\}$$ with rewards $$\{r_1 = R(o_1), \dots, r_G = R(o_G)\}$$. Then for a single 
@@ -91,12 +91,23 @@ $$
 In essence, the advantage of each output is the reward normalized to have zero-mean, unit-variance across the group. 
 If the output is correct (incorrect), the advantage will be larger (smaller) than the mean by an amount _relative_ to
 how easy or hard the query was across the group, which is why the algorithm is called _Group Relative_ Policy Optimization.
-Unlike the rewards, the advantages will vary smoothly from $$0\rightarrow1$$ thereby reducing variance and providing 
+Unlike the rewards, the advantages will vary smoothly thereby reducing variance and providing 
 a stronger learning signal.
 
-<details class="post-aside">
-  <summary>Aside: Removing variance normalization</summary>
-  TODO
+<details class="post-aside" markdown="1">
+  <summary>Aside: Removing unit variance normalization</summary>
+  Normalizing the advantages to have unit variance can inadvertently lead a difficulty bias during training [[8]]. If 
+  a query is very easy or very hard so that most rewards are identical, the variance (and hence standard deviation)
+  of the rewards will be close to $$0$$. Dividing the centered rewards by this tiny value will lead to large advantages, 
+  causing training to heavily bias towards very easy or very difficult queries. 
+  
+  In the limiting case, if all rewards are identical, then the variance will be $$0$$ and the advantage will be undefined. 
+  Such cases need special handling to protect against `NaN`s during training, or better yet, outright removal so no 
+  computation is wasted on them. 
+  
+  Because of these issues, almost all future works or practical implementations of GRPO remove the unit variance normalization
+  from the advantage computation. In the $$0 / 1$$ reward case, there should be no noticable difference in the performance
+  of the final policy.
 </details>
 
 We can now update our surrogate objective to maximize advantages instead of rewards:
@@ -188,9 +199,10 @@ $$
 Clipping the ratio effectively sets its gradient to $$0$$ whenever it falls outside of $$[1-\varepsilon, 1+\varepsilon]$$ ensuring 
 $$\pi_\theta$$ remains close (or proximal) to $$\pi_\text{old}$$ as we take gradient steps.
 
-<details class="post-aside">
+<details class="post-aside" markdown="1">
   <summary>Aside: Trust region motivation for clipping</summary>
-  TODO
+  We've given a somewhat hand-wavey motivation for why we should clip the probability ratios. While it's outside the scope of this post,
+  a more principled motivation is provided by the TRPO [[13]] and PPO [[7]] papers.
 </details>
 
 The DeepSeekMath paper [[1]] which originally introduced GRPO follows PPO [[7]] and sets $$\varepsilon = 0.2$$. Recent papers [[8], [9]] have found
@@ -232,12 +244,22 @@ $$
 
 ### 5. Staying proximal to the reference policy
 
-The final extension GRPO makes is to add a KL-Divergence $$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref})$$. This 
-penalizes the policy $$\pi_\theta$$ from moving too far away from a reference policy $$\pi_\text{ref}$$. Both the
-policy and the reference models are typically initialized from a previously trained SFT model so that 
-$$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref}) = 0$$ at the start of training.
+The final extension GRPO makes is to add a KL-Divergence $$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref})$$ into 
+the objective. This term penalizes the policy $$\pi_\theta$$ from moving too far away from a reference policy 
+$$\pi_\text{ref}$$. Both the policy and the reference models are typically initialized from a previously trained SFT model 
+so that $$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref}) = 0$$ at the start of training. As training progresses,
+the KL-Divergence term will ensure the policy improves while staying relatively close to the SFT model.
 
-
+<details class="post-aside" markdown="1">
+  <summary>Aside: Removing the KL-Divergence term</summary>
+  Unlike PPO which adds the KL term in the reward, GRPO adds it directly into the objective in order to simplify 
+  the advantage computation. This is GRPO's only significant divergence from PPO and it's somewhat questionable whether 
+  it is a principled modification. Many follow-up works have removed the KL-Divergence term from the GRPO loss and
+  observed little-to-no performance degredation. Removing the KL has the added benefit that we do not need to keep $$\pi_\text{ref}$$
+  around during training to compute the reference probabilities, which can lead to significant memory and training 
+  time reductions. In my own experiments, I have noticed little benefit to including the KL-Divergence term, though possibly
+  it is consequential when training very long context models for a large number of steps.
+</details>
 
 The original DeepSeekMath paper approximated the $$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref})$$ using the k3 estimator [[11]] as:
 
@@ -320,3 +342,4 @@ effort to mitigate off-policy behavior.
 [10]: https://arxiv.org/abs/2501.12948v2
 [11]: http://joschu.net/blog/kl-approx.html
 [12]: https://arxiv.org/abs/2512.02556
+[13]: https://arxiv.org/pdf/1502.05477
