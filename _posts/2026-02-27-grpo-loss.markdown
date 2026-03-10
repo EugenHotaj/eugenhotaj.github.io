@@ -21,7 +21,7 @@ $$\mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}[R(o)]$$
 
 To maximize $$\mathcal{J}(\theta)$$ we need to find parameters $$\theta$$ for our LLM policy $$\pi_\theta$$ that will produce 
 good outputs $$o$$ over our query distribution $$q \sim p(Q)$$. One straightforward way is to differentiate with respect
-to our policy and iteratively follow the gradient better policies.
+to our policy and iteratively follow the gradient toward better policies.
 
 
 #### 1.1 REINFORCE
@@ -36,14 +36,14 @@ we can use a few definitions and tricks to derive a _surrogate objective_ which 
 $$
 \begin{align}
 \nabla \mathcal{J}(\theta) &= \nabla \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}[R(o)] \\
-&= \sum_{p, o} \nabla \pi_\theta(o|q) R(o) && \text{definition + linearity of expectations}\\
-&= \sum_{p, o} \frac{\pi_\theta(o|q)}{\pi_\theta(o|q) } \nabla \pi_\theta(o|q) R(o) && \text{identity trick} \\
-&= \sum_{p, o} \pi_\theta(o|q) \nabla \log  \pi_\theta(o|q) R(o) && \text{log derivative trick} \\
+&= \sum_{q, o} \nabla \pi_\theta(o|q) R(o) && \text{definition + linearity of expectations}\\
+&= \sum_{q, o} \frac{\pi_\theta(o|q)}{\pi_\theta(o|q) } \nabla \pi_\theta(o|q) R(o) && \text{identity trick} \\
+&= \sum_{q, o} \pi_\theta(o|q) \nabla \log  \pi_\theta(o|q) R(o) && \text{log derivative trick} \\
 &= \mathbb{E}_{q \sim p(Q), o \sim \pi_\theta(O|q)}[ \nabla \log  \pi_\theta(o|q) R(o)] 
 \end{align}
 $$
 
-The final corresponds to the REINFORCE objective as it is typically presented. In practical implementations, we
+The final line corresponds to the REINFORCE objective as it is typically presented. In practical implementations, we
 only need to implement the term inside the expectation and let autograd handle the rest:
 
 ```python
@@ -96,7 +96,7 @@ a stronger learning signal.
 
 <details class="post-aside" markdown="1">
   <summary>Aside: Removing unit variance normalization</summary>
-  Normalizing the advantages to have unit variance can inadvertently lead a difficulty bias during training [[8]]. If 
+  Normalizing the advantages to have unit variance can inadvertently lead to a difficulty bias during training [[8]]. If 
   a query is very easy or very hard so that most rewards are identical, the variance (and hence standard deviation)
   of the rewards will be close to $$0$$. Dividing the centered rewards by this tiny value will lead to large advantages, 
   causing training to heavily bias towards very easy or very difficult queries. 
@@ -106,7 +106,7 @@ a stronger learning signal.
   computation is wasted on them. 
   
   Because of these issues, almost all future works or practical implementations of GRPO remove the unit variance normalization
-  from the advantage computation. In the $$0 / 1$$ reward case, there should be no noticable difference in the performance
+  from the advantage computation. In the $$0 / 1$$ reward case, there should be no noticeable difference in the performance
   of the final policy.
 </details>
 
@@ -119,10 +119,10 @@ $$
 
 ### 3. Going off-policy
 
-So far we have assumed the outputs are sampled from the current policy $$\{o_i\}_{i=1}^G \sim \pi_\theta(O\vert q)$$ and in an
-ideal world this would always be the case. Unfortunately, because autoregressive sampling from LLMs is so expensive, we must accept
-going off-policy for increased system efficiency and throughput. So going off-policy is an _efficiency trade-off_ we're
-accepting _not something desirable_ from an algorithmic or correctness perspective.
+So far we have assumed the outputs are sampled from the current policy $$\{o_i\}_{i=1}^G \sim \pi_\theta(O\vert q)$$, and in an
+ideal world this would always be the case. Unfortunately, because autoregressive sampling from LLMs is so expensive, we often accept
+some off-policy drift to improve system efficiency and throughput. This is an efficiency trade-off, not something desirable from an
+algorithmic or correctness perspective.
 
 In modern Reinforcement Learning systems, the sampler (what autoregressively generates outputs) and the trainer
 (what computes the forward/backward pass and updates the parameters) are implemented by separate systems in order to maximize
@@ -130,7 +130,7 @@ overall system efficiency. To stay on-policy, the trainer must synchronize its p
 step so the sampler can generate the next set of outputs with the most up-to-date policy parameters.
 
 There are two ways this system can go off-policy. The first is a conscious decision by the algorithm designer to trade off some
-degree of "off-policyness" for efficiency. For example, modern inference systems like vLLM [[3]] batch generations and it can 
+degree of off-policy drift for efficiency. For example, modern inference systems like vLLM [[3]] batch generations and it can 
 be much more efficient to generate huge batches of outputs instead of generating them one-by-one. To increase efficiency we
 could generate a large batch of outputs with parameters $$\pi_\text{old}$$ and use them to take multiple policy gradient
 steps on $$\pi_\theta$$ before synchronizing the new parameters with the sampler. Taking this approach to the extreme,
@@ -140,7 +140,7 @@ been shown to significantly improve system throughput without major quality degr
 
 The second, more insidious way, is from the fact that the sampler and trainer are indeed different systems. Even in the 
 on-policy case where the trainer parameters are always synced with the sampler, the sampler will usually produce different
-token probabilities than then trainer [[5]]. This can be because of differing CUDA kernels, differing precisions, 
+token probabilities than the trainer [[5]]. This can be because of differing CUDA kernels, differing precisions, 
 batch non-determinism [[6]], quantization of the KV cache in the sampler, etc. Therefore, unless we take an unreasonable 
 level of care to identically match sampler and trainer behavior, we cannot escape going off-policy in modern RL systems.
 
@@ -155,7 +155,7 @@ $$
 
 This mismatch can have real, sometimes catastrophic, consequences in practice. For example, it can lead to much worse results than
 an equivalent on-policy run or even cause runs to collapse entirely towards $$0$$ reward. This negative behavior becomes more prevalent
-as the amount of "off-policyness", sequence length, or number of optimization steps increase.
+as the degree of off-policy drift, sequence length, or number of optimization steps increase.
 
 Fortunately, the fix is straightforward and all we need to do is correct the expectation so we optimize the correct objective again. We can 
 do this by multiplying importance sampling weights $$\pi_\theta(o_i|q) / \pi_\text{old}(o_i|q)$$ with our previous objective:
@@ -182,10 +182,10 @@ $$\pi_\text{old}$$ for $$\pi_\theta$$ in the expectation and the denominator.
 
 ### 4. Staying proximal to the old policy
 
-Although the importance sampling weights ensure we're not optimizing the correct objective, they unfortunatley introduce new sources of 
+Although the importance sampling weights ensure we're optimizing the correct objective, they unfortunately introduce new sources of 
 potential issues that can lead to slow or unstable optimization. To understand why, we can consider what happens when $$\pi_\theta$$ and $$\pi_\text{old}$$
 differ in magnitude. If $$\pi_\text{old}$$ is tiny when $$\pi_\theta \gg 0$$ then the ratio $$\pi_\theta / \pi_\text{old}$$ will be large leading
-to large policy gradients. Conversley, if $$\pi_\theta$$ is tiny when $$\pi_\text{old} \gg 0$$ then $$\pi_\theta / \pi_\text{old} \approx 0$$ 
+to large policy gradients. Conversely, if $$\pi_\theta$$ is tiny when $$\pi_\text{old} \gg 0$$ then $$\pi_\theta / \pi_\text{old} \approx 0$$ 
 and learning will be slow. As we get further off-policy, this problem compounds leading to ratios having high variance which means 
 the policy gradients will have high variance and training becomes unstable and can potentially collapse.
 
@@ -206,9 +206,9 @@ $$\pi_\theta$$ remains close (or proximal) to $$\pi_\text{old}$$ as we take grad
 </details>
 
 The DeepSeekMath paper [[1]] which originally introduced GRPO follows PPO [[7]] and sets $$\varepsilon = 0.2$$. Recent papers [[8], [9]] have found
-that setting a higher clipping upper bound of $$0.28$$ can help with exploration and DeepSeek-R1 [[10]] sets it even higher to $$10$$. 
-In my experience, I have also found the original $$\varepsilon = 0.2$$ to be too conservative and use a clipping value closer to what DeepSeek-R1
-proposes.
+that decoupling $$\varepsilon$$ into upper and lower bounds $$(\varepsilon^{-}, \varepsilon^+)$$ and setting $$\varepsilon^+ = 0.28$$ can help with exploration. 
+Indeed, DeepSeek-R1 [[10]] sets $$\varepsilon^+ = 10$$, significantly higher than originally proposed by PPO and follow-up works. In my experiments, I have also 
+found the original $$\varepsilon = 0.2$$ to be too conservative and use clipping values closer to what DeepSeek-R1 proposes.
 
 #### 4.1 Taking a conservative lower bound
 
@@ -219,15 +219,15 @@ we have:
 
 Advantage | Ratio | Clipped vs Unclipped Objective 
 $$A_i > 0$$ | $$r_i(\theta) < 1 - \varepsilon$$ | $$ \text{clip}(r_i(\theta), 1 - \varepsilon, 1 + \varepsilon) A_i > r_i(\theta) A_i$$
-$$A_i > 0$$ | $$r_i(\theta) > 1 - \varepsilon$$ | $$ \text{clip}(r_i(\theta), 1 - \varepsilon, 1 + \varepsilon) A_i < r_i(\theta) A_i$$
+$$A_i > 0$$ | $$r_i(\theta) > 1 + \varepsilon$$ | $$ \text{clip}(r_i(\theta), 1 - \varepsilon, 1 + \varepsilon) A_i < r_i(\theta) A_i$$
 $$A_i < 0$$ | $$r_i(\theta) < 1 - \varepsilon$$ | $$ \text{clip}(r_i(\theta), 1 - \varepsilon, 1 + \varepsilon) A_i < r_i(\theta) A_i$$
-$$A_i < 0$$ | $$r_i(\theta) > 1 - \varepsilon$$ | $$ \text{clip}(r_i(\theta), 1 - \varepsilon, 1 + \varepsilon) A_i > r_i(\theta) A_i$$
+$$A_i < 0$$ | $$r_i(\theta) > 1 + \varepsilon$$ | $$ \text{clip}(r_i(\theta), 1 - \varepsilon, 1 + \varepsilon) A_i > r_i(\theta) A_i$$
 
 As we can see from rows $$1$$ and $$4$$ in the table above, using the clipped objective can artificially inflate how good the current
 policy is. A simple trick to mitigate this is to always take the minimum of the two objectives:
 
 $$
-\min(r_i(\theta)A_i, \text{clip}(r_i(\theta), 1-\varepsilon, 1+\varepsilon))
+\min(r_i(\theta)A_i, \text{clip}(r_i(\theta), 1-\varepsilon, 1+\varepsilon)A_i)
 $$
 
 Now our surrogate objective is always a conservative lower bound on the unclipped objective. 
@@ -244,46 +244,44 @@ $$
 
 ### 5. Staying proximal to the reference policy
 
-The final extension GRPO makes is to add a KL-Divergence $$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref})$$ into 
+The final extension GRPO makes is to add a KL divergence $$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref})$$ into 
 the objective. This term penalizes the policy $$\pi_\theta$$ from moving too far away from a reference policy 
 $$\pi_\text{ref}$$. Both the policy and the reference models are typically initialized from a previously trained SFT model 
 so that $$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref}) = 0$$ at the start of training. As training progresses,
-the KL-Divergence term will ensure the policy improves while staying relatively close to the SFT model.
+the KL divergence term will ensure the policy improves while staying relatively close to the SFT model.
 
 <details class="post-aside" markdown="1">
-  <summary>Aside: Removing the KL-Divergence term</summary>
-  Unlike PPO which adds the KL term in the reward, GRPO adds it directly into the objective in order to simplify 
+  <summary>Aside: Removing the KL divergence term</summary>
+  Unlike PPO which adds the KL term in the reward, GRPO adds it directly to the objective in order to simplify 
   the advantage computation. This is GRPO's only significant divergence from PPO and it's somewhat questionable whether 
-  it is a principled modification. Many follow-up works have removed the KL-Divergence term from the GRPO loss and
-  observed little-to-no performance degredation. Removing the KL has the added benefit that we do not need to keep $$\pi_\text{ref}$$
+  it is a principled modification. Many follow-up works have removed the KL divergence term from the GRPO loss and
+  observed little-to-no performance degradation. Removing the KL has the added benefit that we do not need to keep $$\pi_\text{ref}$$
   around during training to compute the reference probabilities, which can lead to significant memory and training 
-  time reductions. In my own experiments, I have noticed little benefit to including the KL-Divergence term, though possibly
+  time reductions. In my own experiments, I have noticed little benefit to including the KL divergence term, though possibly
   it is consequential when training very long context models for a large number of steps.
 </details>
 
-The original DeepSeekMath paper approximated the $$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref})$$ using the k3 estimator [[11]] as:
+The original DeepSeekMath paper approximated the $$\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref})$$ using the k3 estimator [[11]] which takes a 
+sample average of:
 
 $$
-\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref}) = \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{old}(O|q)} \Bigg[ 
-  \Bigg(\frac{\pi_\text{ref}(o_i | q)}{\pi_\theta(o_i | q)} - 1 \Bigg) - \log \frac{\pi_\text{ref}(o_i | q)}{\pi_\theta(o_i | q)}
-\Bigg]
+\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref}) = \Bigg(\frac{\pi_\text{ref}(o_i | q)}{\pi_\theta(o_i | q)} - 1 \Bigg) - \log \frac{\pi_\text{ref}(o_i | q)}{\pi_\theta(o_i | q)}
 $$
 
-However, this leads to a biased estimate of the KL-Divergence because the outputs o_i are generated from $$\pi_\text{old}$$ instead of 
-$$\pi_\theta$$. DeepSeek-v3.2 [[12]] fixes this by reapplyingthe same importance sampling approach we described in section **3.1**. Namely, 
+However, this leads to a biased estimate of the KL divergence because the outputs $$o_i$$ are generated from $$\pi_\text{old}$$ instead of 
+$$\pi_\theta$$. DeepSeek-v3.2 [[12]] fixes this by reapplying the same importance sampling approach we described in section **3.1**. Namely, 
 we multiply the term inside the expectation by $$\pi_\theta(o_i | q) / \pi_\text{old}(o_i |q)$$:
 
 $$
-\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref}) = \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{old}(O|q)} \Bigg[ 
+\mathbb{D}_\text{KL}(\pi_\theta \Vert \pi_\text{ref}) =
   \frac{\pi_\theta(o_i | q)}{\pi_\text{old}(o_i | q)}
-  \Bigg\{
+  \Bigg[
   \Bigg( \frac{\pi_\text{ref}(o_i | q)}{\pi_\theta(o_i | q)} - 1 \Bigg) 
   - \log \frac{\pi_\text{ref}(o_i | q)}{\pi_\theta(o_i | q)}
-  \Bigg\}
-\Bigg]
+  \Bigg]
 $$
 
-Plugging the KL-Divergence into our previous objective gives us the full GRPO surrogate objective:
+Plugging the KL divergence into our previous objective gives us the full GRPO surrogate objective:
 
 $$
 \mathcal{J}(\theta) = \mathbb{E}_{q \sim p(Q), \{o_i\}_{i=1}^G \sim \pi_\text{old}(O|q)}\Bigg[ 
@@ -295,7 +293,7 @@ $$
 \Bigg]
 $$
 
-Where $$\beta$$ is a hyperparameter that controls how much we care about maintaining a low KL-Divergence. We can implement
+Where $$\beta$$ is a hyperparameter that controls how much we care about maintaining a low KL divergence. We can implement
 the GRPO objective in code by directly translating the math like so:
 
 ```python
@@ -308,21 +306,19 @@ def grpo(
   eps: float = 0.2,
   beta: float = 0.1,
 ) -> torch.Tensor: 
-    log_ratios = pi_logps - old_logps
-
-    ratios = torch.exp(log_ratios)
+    ratios = torch.exp(pi_logps - old_logps)
     clipped_ratios = torch.clip(ratios, 1 - eps, 1 + eps)
-    lower_bound = torch.minimum(ratios * advantage, clipped_ratios * advantage)
+    lower_bound = torch.minimum(ratios * advantages, clipped_ratios * advantages)
 
     k3 = torch.exp(ref_logps - pi_logps) - 1 - (ref_logps - pi_logps)
-    unbiased_k3 = log_ratios * k3
+    unbiased_k3 = ratios * k3
     
     masked_obj = (lower_bound - beta * unbiased_k3) * masks
     token_level_avg = (masked_obj).sum(dim=1) / masks.sum(dim=1)
     return token_level_avg.mean()
 ```
 
-Where again we have take a token-level average over the objective.
+As with REINFORCE, we take a token-level average over the objective.
 
 ### Conclusion
 
